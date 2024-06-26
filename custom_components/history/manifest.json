@@ -1,0 +1,10 @@
+{
+    "domain": "history_services",
+    "name": "History Services",
+    "codeowners": ["@davidrapan"],
+    "dependencies": ["history", "device_tracker"],
+    "documentation": "https://github.com/davidrapan/ha-history/",
+    "iot_class": "local_polling",
+    "requirements": ["simplekml"],
+    "version": "0.1.0"
+}

@@ -1,0 +1,63 @@
+export:
+  name: Export
+  description: Export history data of any sensor
+  fields:
+    entity_id:
+      name: Entity
+      required: true
+      selector:
+        entity:
+    start:
+      name: Start
+      required: false
+      selector:
+        datetime:
+    end:
+      name: End
+      required: false
+      selector:
+        datetime:
+
+export_device_tracker:
+  name: Device tracker export
+  description: Export device tracker data in KML
+  fields:
+    entity_id:
+      name: Entity
+      required: true
+      selector:
+        entity:
+          domain: device_tracker
+    start:
+      name: Start
+      required: false
+      selector:
+        datetime:
+    end:
+      name: End
+      required: false
+      selector:
+        datetime:
+    max_gap:
+      name: Max gap [s]
+      description: A period which is not counted as an break
+      required: true
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 3600
+    attributes:
+      name: Attributes
+      description: Additional attributes to include
+      required: false
+      example: timestamp course speed
+      selector:
+        text:
+    filepath:
+      name: File path
+      description: Save location of the tracking data
+      required: false
+      example: www/history/device_tracker.kml
+      selector:
+        text:
