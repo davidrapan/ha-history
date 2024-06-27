@@ -15,8 +15,7 @@ from datetime import datetime as dt, timedelta as td
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers import config_validation as cv
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback, valid_entity_id
-from homeassistant.components.recorder import get_instance, history
-from homeassistant.components.recorder.util import session_scope
+from homeassistant.components.recorder import history
 from homeassistant.util import dt as dt_util
 
 from ..const import *
@@ -24,28 +23,50 @@ from ..common import *
 
 _LOGGER = logging.getLogger(__name__)
 
-_SERVICE_SCHEMA = vol.Schema({
-    vol.Required("entity_id"): cv.entity_id,
-    vol.Optional("start"): cv.datetime,
-    vol.Optional("end"): cv.datetime,
+_SERVICE_SCHEMA = SERVICE_SCHEMA
+_SERVICE_SCHEMA = _SERVICE_SCHEMA.extend({
     vol.Required("max_gap"): int,
     vol.Optional("attributes"): cv.string,
     vol.Optional("filepath"): cv.string,
 })
 
-# Haversine formula to calculate the distance between two lat/lon points
+def is_gps(attributes):
+    return "source_type" in attributes and attributes["source_type"] == "gps"
+
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # Earth radius in kilometers
+    dLat = math.radians(lat2 - lat1)
+    dLon = math.radians(lon2 - lon1)
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
 
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
+    a = math.sin(dLat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
 
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
+    return EARTH_RADIUS * c
 
-# Function to remove close points
+def haversine2(coords1, coords2):
+    return haversine(coords1["latitude"], coords1["longitude"], coords2["latitude"], coords2["longitude"])
+
+def timediff(dt1, dt2):
+    return dt1 - dt2 if dt1 > dt2 else dt2 - dt1
+
+def segment_condition(attributes1, attributes2):
+    if is_gps(attributes1):
+        if "speed" in attributes1 and int(attributes1["speed"]) > 0:
+            return True
+        elif attributes2:
+            return haversine2(attributes1, attributes2) > 0.019
+    return False
+
+def are_coords_within(points, radius):
+    n = len(points)
+    for i in range(n):
+        for j in range(i + 1, n):
+            distance = haversine(points[i][0], points[i][1], points[j][0], points[j][1])
+            if distance > radius:
+                return False
+    return True
+
 def remove_close_points(points, threshold_km):
     if not points:
         return []
@@ -82,70 +103,64 @@ async def async_register_service(hass: HomeAssistant):
             end_time = dt_util.as_utc(call.data["end"])
 
         max_gap = int(call.data["max_gap"])
+        max_gap_td = td(seconds = max_gap)
 
         attributes = ""
         if "attributes" in call.data:
             attributes = call.data["attributes"]
 
-        str_start_time = str(start_time)
-        str_end_time = str(end_time)
+        start_time_local = dt_util.as_local(start_time).isoformat()
+        end_time_local = dt_util.as_local(end_time).isoformat()
 
         if start_time > now:
-            return { "timespan": { "start": str_start_time, "end": str_end_time }, "result": "error", "message": "Invalid date" }
+            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "error", "message": "Invalid date" }
 
         include_start_time_state = True
         significant_changes_only = True
         minimal_response = False
         no_attributes = False
 
-        result = []
+        results = history.get_significant_states(
+            hass,
+            start_time,
+            end_time,
+            entity_ids,
+            None,
+            include_start_time_state,
+            significant_changes_only,
+            minimal_response,
+            no_attributes,
+        )
 
-        with session_scope(hass = hass, read_only = True) as session:
-            result = history.get_significant_states_with_session(
-                hass,
-                session,
-                start_time,
-                end_time,
-                entity_ids,
-                None,
-                include_start_time_state,
-                significant_changes_only,
-                minimal_response,
-                no_attributes,
-            )
+        result = results[call.data["entity_id"]]
 
-        entity_result = result[call.data["entity_id"]]
-
-        #loop = asyncio.get_running_loop()
-        #await loop.run_in_executor(None, lambda: open_file(hass.config.path(f'www/export/history_data.txt'), "w", 
-        #    lambda file: file.write(str(entity_result))))
-
-        #threshold_km = 0.1  # Set threshold distance
-        #linestring_coords = [(p.attributes["longitude"], p.attributes["latitude"], p.attributes["altitude"]) for p in entity_result]
-        #linestring.coords = remove_close_points(linestring_coords, threshold_km)
+        if result and not is_gps(result[0].attributes):
+            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "error", "message": "Entity is not a gps tracker" }
 
         segments = []
         current_segment = []
-        for i, point in enumerate(entity_result):
+        result_last = len(result) - 1
+        for i, point in enumerate(result):
             point.attributes["timestamp"] = dt_util.as_local(point.last_changed).isoformat()
 
-            p_attr = point.attributes
-            if (int(p_attr['speed']) > 0.1 or (len(current_segment) > 0 and haversine(p_attr["latitude"], p_attr["longitude"], current_segment[-1].attributes["latitude"], current_segment[-1].attributes["longitude"]) > 0.05)):
-                if len(current_segment) == 0 and i > 0:
-                    current_segment.append(entity_result[i - 1])
+            if segment_condition(point.attributes, result[i + 1].attributes if i < result_last else []):
+                if current_segment and i > 0:
+                    current_segment.append(result[i - 1])
                 current_segment.append(point)
             else:
                 if current_segment:
+                    if len(current_segment) > 1 and i < result_last:
+                        current_segment.append(result[i + 1])
                     segments.append(current_segment)
                     current_segment = []
 
         connected_segments = []
         current_segment = []
         for i, segment in enumerate(segments):
-            if haversine(segment[0].attributes["latitude"], segment[0].attributes["longitude"], segment[-1].attributes["latitude"], segment[-1].attributes["longitude"]) < 0.05:
+            if are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in segment], 0.025):
                 continue
 
-            if len(current_segment) == 0 or (segment[0].last_changed - current_segment[-1].last_changed) <= td(seconds = max_gap):
+            if not current_segment or timediff(segment[0].last_changed, current_segment[-1].last_changed) <= max_gap_td:
                 current_segment.extend(segment)
             else:
                 connected_segments.append(current_segment)
@@ -154,7 +169,7 @@ async def async_register_service(hass: HomeAssistant):
         connected_segments.append(current_segment)
 
         if len(connected_segments) == 0 or len(connected_segments[0]) == 0:
-            return { "timespan": { "start": str_start_time, "end": str_end_time }, "result": "", "message": "Request returned empty response" }
+            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "", "message": "Request returned empty response" }
 
         kml = simplekml.Kml(open = 1)
 
@@ -196,7 +211,7 @@ async def async_register_service(hass: HomeAssistant):
             await loop.run_in_executor(None, lambda: open_file(filepath, "w", 
                 lambda file: file.write(kml.kml())))
 
-        return { "timespan": { "start": str_start_time, "end": str_end_time }, "result": kml.kml() }
+        return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": kml.kml() }
 
     #integration = await async_get_integration(hass, "history_services")
     #platform = await integration.async_get_platform("history_services")
