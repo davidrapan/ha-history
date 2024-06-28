@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 _SERVICE_SCHEMA = SERVICE_SCHEMA
 _SERVICE_SCHEMA = _SERVICE_SCHEMA.extend({
     vol.Required("max_gap"): int,
+    vol.Required("min_radius"): int,
     vol.Optional("attributes"): cv.string,
     vol.Optional("filepath"): cv.string,
 })
@@ -113,12 +114,13 @@ async def async_register_service(hass: HomeAssistant):
                     segments.append(current_segment)
                     current_segment = []
 
+        min_radius = call.data["min_radius"] / 1000
         max_gap = td(seconds = call.data["max_gap"])
 
         connected_segments = []
         current_segment = []
         for i, segment in enumerate(segments):
-            if are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in segment], 0.025):
+            if are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in segment], min_radius):
                 continue
 
             if not current_segment or timediff(segment[0].last_changed, current_segment[-1].last_changed) <= max_gap:

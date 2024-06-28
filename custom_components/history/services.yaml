@@ -47,6 +47,15 @@ export_device_tracker:
         number:
           min: 0
           max: 3600
+    min_radius:
+      name: Min radius [m]
+      description: A radius in which a group of coords will not be considered as valid path
+      required: true
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 1000
     attributes:
       name: Attributes
       description: Additional attributes to include
