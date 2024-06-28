@@ -4,37 +4,42 @@ export:
   fields:
     entity_id:
       name: Entity
+      description: "Any entity"
       required: true
       selector:
         entity:
     start:
       name: Start
+      description: "Beginning of the interval"
       required: false
       selector:
         datetime:
     end:
       name: End
+      description: "Ending of the interval"
       required: false
       selector:
         datetime:
-
 export_device_tracker:
   name: Device tracker export
-  description: Export device tracker data in KML
+  description: Export device tracker data in KML format
   fields:
     entity_id:
       name: Entity
+      description: "Device tracker entity"
       required: true
       selector:
         entity:
           domain: device_tracker
     start:
       name: Start
+      description: "Beginning of the interval"
       required: false
       selector:
         datetime:
     end:
       name: End
+      description: "Ending of the interval"
       required: false
       selector:
         datetime:

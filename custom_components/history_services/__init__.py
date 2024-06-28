@@ -3,11 +3,17 @@ from __future__ import annotations
 import logging
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.config_entries import ConfigEntry
+
+#from homeassistant.config_entries import ConfigEntry
 
 from .services.export import async_register_service as async_register_export_service
 from .services.device_tracker import async_register_service as async_register_device_tracker_service
+
+from .const import *
+
+CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
