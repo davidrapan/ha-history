@@ -12,10 +12,8 @@ from datetime import datetime as dt, timedelta as td
 #from homeassistant.helpers.entity_platform import EntityPlatform
 #from homeassistant.helpers.entity_component import EntityComponent
 
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers import config_validation as cv
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback, valid_entity_id
-from homeassistant.components.recorder import history
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.util import dt as dt_util
 
 from ..const import *
@@ -90,59 +88,20 @@ def group_when(iterable, predicate):
 async def async_register_service(hass: HomeAssistant):
     @callback
     async def export_service(call: ServiceCall) -> ServiceResponse:
-        now = dt_util.utcnow()
-        start_time = now - ONE_DAY
-        end_time = now
+        response = get_significant_states(hass, call)
+        result = response["result"]
 
-        entity_ids = list([call.data["entity_id"]])
+        if not result:
+            return response
 
-        if "start" in call.data:
-            start_time = dt_util.as_utc(call.data["start"])
-
-        if "end" in call.data:
-            end_time = dt_util.as_utc(call.data["end"])
-
-        max_gap = int(call.data["max_gap"])
-        max_gap_td = td(seconds = max_gap)
-
-        attributes = ""
-        if "attributes" in call.data:
-            attributes = call.data["attributes"]
-
-        start_time_local = dt_util.as_local(start_time).isoformat()
-        end_time_local = dt_util.as_local(end_time).isoformat()
-
-        if start_time > now:
-            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "error", "message": "Invalid date" }
-
-        include_start_time_state = True
-        significant_changes_only = True
-        minimal_response = False
-        no_attributes = False
-
-        results = history.get_significant_states(
-            hass,
-            start_time,
-            end_time,
-            entity_ids,
-            None,
-            include_start_time_state,
-            significant_changes_only,
-            minimal_response,
-            no_attributes,
-        )
-
-        result = results[call.data["entity_id"]]
-
-        if result and not is_gps(result[0].attributes):
-            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "error", "message": "Entity is not a gps tracker" }
+        if not is_gps(result[0].attributes):
+            return { "timespan": response["timespan"], "result": "error", "message": "Entity is not a gps tracker" }
 
         segments = []
         current_segment = []
         result_last = len(result) - 1
         for i, point in enumerate(result):
             point.attributes["timestamp"] = dt_util.as_local(point.last_changed).isoformat()
-
             if segment_condition(point.attributes, result[i + 1].attributes if i < result_last else []):
                 if current_segment and i > 0:
                     current_segment.append(result[i - 1])
@@ -154,13 +113,15 @@ async def async_register_service(hass: HomeAssistant):
                     segments.append(current_segment)
                     current_segment = []
 
+        max_gap = td(seconds = call.data["max_gap"])
+
         connected_segments = []
         current_segment = []
         for i, segment in enumerate(segments):
             if are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in segment], 0.025):
                 continue
 
-            if not current_segment or timediff(segment[0].last_changed, current_segment[-1].last_changed) <= max_gap_td:
+            if not current_segment or timediff(segment[0].last_changed, current_segment[-1].last_changed) <= max_gap:
                 current_segment.extend(segment)
             else:
                 connected_segments.append(current_segment)
@@ -168,10 +129,14 @@ async def async_register_service(hass: HomeAssistant):
 
         connected_segments.append(current_segment)
 
-        if len(connected_segments) == 0 or len(connected_segments[0]) == 0:
-            return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": "", "message": "Request returned empty response" }
+        if not connected_segments or not connected_segments[0]:
+            return { "timespan": response["timespan"], "result": "", "message": "Request returned empty response" }
 
         kml = simplekml.Kml(open = 1)
+
+        attributes = ""
+        if "attributes" in call.data:
+            attributes = call.data["attributes"]
 
         if attributes:
             schema = kml.newschema()
@@ -211,7 +176,7 @@ async def async_register_service(hass: HomeAssistant):
             await loop.run_in_executor(None, lambda: open_file(filepath, "w", 
                 lambda file: file.write(kml.kml())))
 
-        return { "timespan": { "start": start_time_local, "end": end_time_local }, "result": kml.kml() }
+        return { "timespan": response["timespan"], "result": kml.kml() }
 
     #integration = await async_get_integration(hass, "history_services")
     #platform = await integration.async_get_platform("history_services")
