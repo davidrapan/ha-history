@@ -4,10 +4,12 @@ import copy
 import math
 import logging
 import asyncio
+import aiofiles
 import simplekml
 import voluptuous as vol
 
 from datetime import datetime as dt, timedelta as td
+from pathlib import Path
 
 #from homeassistant.loader import async_get_integration
 #from homeassistant.helpers.entity_platform import EntityPlatform
@@ -27,7 +29,8 @@ _SERVICE_SCHEMA = _SERVICE_SCHEMA.extend({
     vol.Required("max_gap"): int,
     vol.Required("min_radius"): int,
     vol.Optional("attributes"): cv.string,
-    vol.Optional("filepath"): cv.string,
+    vol.Optional("directory"): cv.string,
+    vol.Optional("filename"): cv.string,
 })
 
 def is_gps(attributes):
@@ -197,18 +200,28 @@ async def async_register_service(hass: HomeAssistant):
         #        linestring.timespan.begin = str(p[0].last_reported)
         #        linestring.timespan.end = str(p[1].last_reported)
 
-        if "filepath" in call.data:
-            if call_filepath := call.data["filepath"]:
-                filepath = hass.config.path(call_filepath)
-            else:
-                filepath = ""
-        else:
-            filepath = hass.config.path(f'www/history/device_tracker.kml')
+        directory = "www/history/"
+        filename = "device_tracker"
+        fileext = "kml"
+        file = ""
 
-        if filepath:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: open_file(filepath, "w", 
-                lambda file: file.write(kml.kml())))
+        if "directory" in call.data:
+            if call_directory := call.data["directory"]:
+                directory = call_directory
+
+        if "filename" in call.data:
+            filename = ""
+            if call_filename := call.data["filename"]:
+                filename = call_filename
+
+        if directory and filename and fileext:
+            file = hass.config.path(f'{directory}{filename}.{fileext}')
+
+        if file:
+            file_path = Path(file)
+            file_path.parent.mkdir(exist_ok = True, parents = True)
+            async with aiofiles.open(file, "w") as f:
+                await f.write(kml.kml())
 
         return { "timespan": response["timespan"], "result": kml.kml() }
 

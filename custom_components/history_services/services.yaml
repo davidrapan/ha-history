@@ -68,10 +68,17 @@ export_device_tracker:
       example: timestamp distance length course speed
       selector:
         text:
-    filepath:
-      name: File path
-      description: Save location of the tracking data
+    directory:
+      name: Directory
+      description: Directory part of save location of the tracking data
       required: false
-      example: www/history/device_tracker.kml
+      example: www/history/
+      selector:
+        text:
+    filename:
+      name: File name
+      description: File name part of save location of the tracking data
+      required: false
+      example: device_tracker
       selector:
         text:
