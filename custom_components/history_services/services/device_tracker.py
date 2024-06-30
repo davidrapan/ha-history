@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 import logging
 import asyncio
@@ -54,7 +55,15 @@ def segment_condition(attributes1, attributes2):
         if "speed" in attributes1 and int(attributes1["speed"]) > 0:
             return True
         elif attributes2:
-            return haversine2(attributes1, attributes2) > 0.019
+            return h > 0.019
+    return False
+
+def segment_condition2(attributes):
+    if is_gps(attributes):
+        if "speed" in attributes and int(attributes["speed"]) > 0:
+            return True
+        elif "distance" in attributes and attributes["distance"] > 0.009:
+            return True
     return False
 
 def are_coords_within(points, radius):
@@ -90,40 +99,58 @@ async def async_register_service(hass: HomeAssistant):
     @callback
     async def export_service(call: ServiceCall) -> ServiceResponse:
         response = get_significant_states(hass, call)
-        result = response["result"]
+        response_result = response["result"]
 
-        if not result:
+        if not response_result:
             return response
 
-        if not is_gps(result[0].attributes):
+        if not is_gps(response_result[0].attributes):
             return { "timespan": response["timespan"], "result": "error", "message": "Entity is not a gps tracker" }
 
-        segments = []
-        current_segment = []
-        result_last = len(result) - 1
-        for i, point in enumerate(result):
-            point.attributes["timestamp"] = dt_util.as_local(point.last_changed).isoformat()
-            if segment_condition(point.attributes, result[i + 1].attributes if i < result_last else []):
-                if current_segment and i > 0:
-                    current_segment.append(result[i - 1])
-                current_segment.append(point)
+        result = []
+        # Why is it necessary to do deepcopy when enriching state?
+        # - It messes up the values of those added attributes (duplicates, etc.)
+        # - Maybe because of the caching nature of LazyState from recorder?
+        for i, p in enumerate(response_result):
+            point = copy.deepcopy(p)
+            point.attributes["timestamp"] = dt_util.as_local(point.last_updated).isoformat()
+            if i > 0:
+                point.attributes["distance"] = haversine2(result[i - 1].attributes, point.attributes)
+                point.attributes["length"] = timediff(result[i - 1].last_updated, point.last_updated)
             else:
-                if current_segment:
-                    if len(current_segment) > 1 and i < result_last:
-                        current_segment.append(result[i + 1])
-                    segments.append(current_segment)
-                    current_segment = []
+                point.attributes["distance"] = 0
+                point.attributes["length"] = 0
+            result.append(point)
 
         min_radius = call.data["min_radius"] / 1000
         max_gap = td(seconds = call.data["max_gap"])
 
+        segments = []
+        current_segment = []
+        result_last = len(result) - 1
+        prevp = None
+        for i, p in enumerate(result):
+            if segment_condition2(p.attributes):
+                if not current_segment and i > 0:
+                    current_segment.append(result[i - 1])
+                current_segment.append(p)
+            else:
+                if current_segment:
+                    #if i < result_last and haversine2(point.attributes, result[i + 1].attributes) > 0:
+                    #    result[i + 1].attributes["distance"] = haversine2(current_segment[-1].attributes, result[i + 1].attributes)
+                    #    current_segment.append(result[i + 1])
+                    #current_segment[0].attributes["distance"] = 0
+                    if len(current_segment) > 1 and not are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in current_segment], min_radius):
+                        segments.append(current_segment)
+                    current_segment = []
+
         connected_segments = []
         current_segment = []
         for i, segment in enumerate(segments):
-            if are_coords_within([(c.attributes["latitude"], c.attributes["longitude"]) for c in segment], min_radius):
-                continue
-
-            if not current_segment or timediff(segment[0].last_changed, current_segment[-1].last_changed) <= max_gap:
+            if not current_segment or timediff(current_segment[-1].last_updated, segment[0].last_updated) <= max_gap:
+            #if not current_segment or point.attributes["length"] <= max_gap:
+                segment[0].attributes["distance"] = haversine2(current_segment[-1].attributes, segment[0].attributes) if i > 0 else 0
+                segment[0].attributes["length"] = timediff(current_segment[-1].last_updated, segment[0].last_updated) if i > 0 else 0
                 current_segment.extend(segment)
             else:
                 connected_segments.append(current_segment)
@@ -142,15 +169,20 @@ async def async_register_service(hass: HomeAssistant):
 
         if attributes:
             schema = kml.newschema()
-            attributes_list = [i for i in attributes.split() if i in connected_segments[0][0].attributes]
+            attributes_list = [i for i in attributes.split() if i in result[0].attributes]
             for item in attributes_list:
-                type = simplekml.Types.int if isinstance(connected_segments[0][0].attributes[item], int) else simplekml.Types.string
+                type = simplekml.Types.int if isinstance(result[0].attributes[item], int) else simplekml.Types.string
                 schema.newgxsimplearrayfield(name = item, type = type, displayname = item.capitalize())
 
         for s in connected_segments:
-            linestring = kml.newlinestring(name = (str(dt_util.as_local(s[0].last_changed)) + " - " + str(dt_util.as_local(s[-1].last_changed))))
-            linestring.timespan.begin = str(s[0].last_changed)
-            linestring.timespan.end = str(s[-1].last_changed)
+            l = 0
+            for p in s:
+                l += p.attributes["distance"]
+            l = round(l, 3)
+            t = s[-1].last_updated - s[0].last_updated
+            linestring = kml.newlinestring(name = (str(dt_util.as_local(s[0].last_updated)) + " - " + str(dt_util.as_local(s[-1].last_updated)) + ", duration: " + str(t) + ", length: " + str(l) + " km"))
+            linestring.timespan.begin = str(s[0].last_updated)
+            linestring.timespan.end = str(s[-1].last_updated)
             linestring.coords = [(p.attributes["longitude"], p.attributes["latitude"], p.attributes["altitude"]) for p in s]
             if attributes:
                 linestring.extendeddata.schemadata.schemaurl = schema.id

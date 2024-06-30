@@ -65,7 +65,7 @@ export_device_tracker:
       name: Attributes
       description: Additional attributes to include
       required: false
-      example: timestamp course speed
+      example: timestamp distance length course speed
       selector:
         text:
     filepath:

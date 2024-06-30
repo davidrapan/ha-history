@@ -25,7 +25,7 @@ Saves output into file with default location: 'www/history/device_tracker.kml'
 - Follow the link [here](https://hacs.xyz/docs/faq/custom_repositories/)
 - Add custom repository: https://github.com/davidrapan/ha-history
 - Select type of the category: integration
-- Find newly added History Services and click on the INSTALL button
+- Find newly added History Services, open it and then click on the DOWNLOAD button
 
 ### Manually
 - Copy the contents of 'custom_components/history_services' directory into the Home Assistant with exactly the same hirearchy withing the '/config' directory

@@ -6,8 +6,6 @@ from homeassistant.helpers import config_validation as cv
 
 DOMAIN = "history_services"
 
-CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
-
 EXPORT_SERVICE_NAME = "export"
 EXPORT_DEVICE_TRACKER_SERVICE_NAME = "export_device_tracker"
 

@@ -24,7 +24,8 @@ def get_significant_states(hass: HomeAssistant, call: ServiceCall):
     start_time = now - ONE_DAY
     end_time = now
 
-    entity_ids = list([call.data["entity_id"]])
+    entity_id = call.data["entity_id"]
+    entity_ids = list([entity_id])
 
     if "start" in call.data:
         start_time = dt_util.as_utc(call.data["start"])
@@ -34,10 +35,10 @@ def get_significant_states(hass: HomeAssistant, call: ServiceCall):
 
     start_time_local = dt_util.as_local(start_time).isoformat()
     end_time_local = dt_util.as_local(end_time).isoformat()
-    timespan_local = { "start": start_time_local, "end": end_time_local }
+    timespan = { "start": start_time_local, "end": end_time_local }
 
     if start_time > now:
-        return { "timespan": timespan_local, "result": "error", "message": "Invalid date" }
+        return { "timespan": timespan, "result": "error", "message": "Invalid date" }
 
     include_start_time_state = True
     significant_changes_only = True
@@ -57,6 +58,9 @@ def get_significant_states(hass: HomeAssistant, call: ServiceCall):
     )
 
     if not response:
-        return { "timespan": timespan_local, "result": "", "message": "Request returned empty response" }
+        return { "timespan": timespan, "result": "", "message": "Request returned empty response" }
 
-    return { "timespan": timespan_local, "result": response[call.data["entity_id"]] }
+    result = response[entity_id]
+    result.sort(key = lambda i: i.last_updated)
+
+    return { "timespan": timespan, "result": result }
