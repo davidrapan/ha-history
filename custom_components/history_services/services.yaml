@@ -8,6 +8,15 @@ export:
       required: true
       selector:
         entity:
+    last_hours:
+      name: Hours
+      description: "Data from last X hours"
+      required: true
+      default: 24
+      selector:
+        number:
+          min: 1
+          max: 120
     start:
       name: Start
       description: "Beginning of the interval"
@@ -31,6 +40,15 @@ export_device_tracker:
       selector:
         entity:
           domain: device_tracker
+    last_hours:
+      name: Hours
+      description: "Data from last X hours"
+      required: true
+      default: 24
+      selector:
+        number:
+          min: 1
+          max: 120
     start:
       name: Start
       description: "Beginning of the interval"

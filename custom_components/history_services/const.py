@@ -11,6 +11,7 @@ EXPORT_DEVICE_TRACKER_SERVICE_NAME = "export_device_tracker"
 
 SERVICE_SCHEMA = vol.Schema({
     vol.Required("entity_id"): cv.entity_id,
+    vol.Required("last_hours"): int,
     vol.Optional("start"): cv.datetime,
     vol.Optional("end"): cv.datetime,
 })

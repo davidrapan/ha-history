@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from pathlib import Path
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta as td
 
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback, valid_entity_id
 from homeassistant.components.recorder import history
@@ -20,18 +20,20 @@ def open_file(filepath, mode, x):
         return x(file)
 
 def get_significant_states(hass: HomeAssistant, call: ServiceCall):
-    now = dt_util.utcnow()
-    start_time = now - ONE_DAY
-    end_time = now
-
     entity_id = call.data["entity_id"]
     entity_ids = list([entity_id])
 
-    if "start" in call.data:
-        start_time = dt_util.as_utc(call.data["start"])
+    last_hours = call.data["last_hours"]
 
+    now = dt_util.utcnow()
+
+    end_time = now
     if "end" in call.data:
         end_time = dt_util.as_utc(call.data["end"])
+
+    start_time = end_time - td(hours = last_hours)
+    if "start" in call.data:
+        start_time = dt_util.as_utc(call.data["start"])
 
     start_time_local = dt_util.as_local(start_time).isoformat()
     end_time_local = dt_util.as_local(end_time).isoformat()
