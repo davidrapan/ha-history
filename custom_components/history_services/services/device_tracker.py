@@ -212,7 +212,7 @@ async def async_register_service(hass: HomeAssistant):
         if "filename" in call.data:
             filename = ""
             if call_filename := call.data["filename"]:
-                filename = call_filename
+                filename = call_filename.replace('.', '/')
 
         if directory and filename and fileext:
             file = hass.config.path(f'{directory}{filename}.{fileext}')
